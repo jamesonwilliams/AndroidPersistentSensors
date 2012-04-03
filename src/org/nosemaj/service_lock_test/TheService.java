@@ -2,6 +2,8 @@ package org.nosemaj.service_lock_test;
 
 import android.app.Notification;
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.Sensor;
@@ -9,6 +11,7 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.PowerManager.WakeLock;
 import android.os.PowerManager;
@@ -17,40 +20,75 @@ import android.util.Log;
 
 public class TheService extends Service implements SensorEventListener {
     public static final String TAG = TheService.class.getName();
-    private WakeLock mWakeLock = null;
+    public static final int SCREEN_OFF_RECEIVER_DELAY = 500;
 
-    /*
-     * Acquire a partial wake lock.
-     */
-    private void acquireWakeLock() {
-        PowerManager manager =
-            (PowerManager) getSystemService(Context.POWER_SERVICE);
-        mWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
-        mWakeLock.acquire();
-    }
+    private SensorManager mSensorManager = null;
+    private WakeLock mWakeLock = null;
 
     /*
      * Register this as a sensor event listener.
      */
     private void registerListener() {
-        SensorManager sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
-        sensorManager.registerListener(this,
-                sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
+        mSensorManager.registerListener(this,
+                mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
                 SensorManager.SENSOR_DELAY_NORMAL);
     }
 
     /*
-     * Make this service a foreground service.
+     * Un-register this as a sensor event listener.
      */
-    private void putInForeground() {
-        startForeground(Process.myPid(), new Notification());
+    private void unregisterListener() {
+        mSensorManager.unregisterListener(this);
+    }
+
+    public BroadcastReceiver mReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Log.i(TAG, "onReceive("+intent+")");
+
+            if (!intent.getAction().equals(Intent.ACTION_SCREEN_OFF)) {
+                return;
+            }
+             
+            Runnable runnable = new Runnable() {
+                public void run() {
+                    Log.i(TAG, "Runnable executing.");
+                    unregisterListener();
+                    registerListener();
+                }
+            };
+
+            new Handler().postDelayed(runnable, SCREEN_OFF_RECEIVER_DELAY);
+        }
+    };
+
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+        Log.i(TAG, "onAccuracyChanged().");
+    }
+
+    public void onSensorChanged(SensorEvent event) {
+        Log.i(TAG, "onSensorChanged().");
     }
 
     @Override
     public void onCreate() {
         super.onCreate();
-        
-        Log.i(TAG, "onCreate()");
+
+        mSensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+
+        PowerManager manager =
+            (PowerManager) getSystemService(Context.POWER_SERVICE);
+        mWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
+
+        registerReceiver(mReceiver, new IntentFilter(Intent.ACTION_SCREEN_OFF));
+    }
+
+    @Override
+    public void onDestroy() {
+        unregisterReceiver(mReceiver);
+        unregisterListener();
+        mWakeLock.release();
+        stopForeground(true);
     }
 
     @Override
@@ -62,21 +100,11 @@ public class TheService extends Service implements SensorEventListener {
     public int onStartCommand(Intent intent, int flags, int startId) {
         super.onStartCommand(intent, flags, startId);
 
-        Log.i(TAG, "onStartCommand()");
-
-        putInForeground();
+        startForeground(Process.myPid(), new Notification());
         registerListener();
-        acquireWakeLock();
+        mWakeLock.acquire();
 
         return START_STICKY;
-    }
-
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-        Log.i(TAG, "onAccuracyChanged().");
-    }
-
-    public void onSensorChanged(SensorEvent event) {
-        Log.i(TAG, "onSensorChanged().");
     }
 }
 
