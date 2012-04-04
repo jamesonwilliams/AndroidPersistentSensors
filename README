@@ -1,0 +1,5 @@
+An example Android service showing how to receive sensor event
+notifications even after the screen goes off.
+
+See http://nosemaj.org/android-persistent-sensors
+
